@@ -31,6 +31,37 @@ BAD_PATIENTS = [7, 34, 95, 104, 111]
 WAVE_MAP = {'p': 1, 'N': 2, 't': 3}  # 0 = none
 
 
+def augment_signal(signal):
+    """Dodaje różne realistyczne zakłócenia do sygnału EKG."""
+    L = len(signal)
+
+    # 1. Dodanie szumu Gaussowskiego (małe zakłócenia elektryczne)
+    noise = np.random.normal(0, 0.01, L)
+
+    # 2. Dryft bazowy (symulacja oddychania, niskoczęstotliwościowy trend)
+    drift = 0.05 * np.sin(np.linspace(0, 2*np.pi, L))
+
+    # 3. Zakłócenia od mikro skurczów mięśni (szybkie, losowe zmiany)
+    muscle_noise = 0.02 * np.random.randn(L) * np.sin(np.linspace(0, 50*np.pi, L))
+
+    # 4. Zakłócenia elektryczne 50Hz (lekkie zakłócenia sieci elektrycznej)
+    electric_noise = 0.01 * np.sin(2 * np.pi * 50 * np.linspace(0, 1, L))
+
+    # Wybieramy losowe zakłócenie
+    perturbation = np.random.choice([0, 1, 2, 3])
+
+    if perturbation == 0:
+        augmented_signal = signal + noise
+    elif perturbation == 1:
+        augmented_signal = signal + drift
+    elif perturbation == 2:
+        augmented_signal = signal + muscle_noise
+    else:
+        augmented_signal = signal + electric_noise
+
+    return augmented_signal
+
+
 def resample_signal(signal, orig_fs=500, target_fs=500):
     if orig_fs == target_fs:
         return signal
@@ -122,19 +153,34 @@ def generate_training_fragments(signal, labels, num_fragments=5):
     start_min = 1000
     start_max = L - 1000 - WINDOW_SIZE
     if start_max <= start_min:
-        return [], []
+        return [], [], [], []
+
     X_segments = []
     Y_segments = []
+    X_aug_segments = []
+    Y_aug_segments = []
+
     for _ in range(num_fragments):
         start_idx = randint(start_min, start_max)
         end_idx = start_idx + WINDOW_SIZE
+
         X_seg = signal[start_idx:end_idx].copy()
         Y_seg = labels[start_idx:end_idx].copy()
+
         # Normalizacja
         X_seg = (X_seg - np.mean(X_seg)) / (np.std(X_seg) + 1e-8)
+
+        # Tworzymy wersję z zakłóceniami
+        X_aug = augment_signal(X_seg)
+
         X_segments.append(X_seg)
         Y_segments.append(Y_seg)
-    return X_segments, Y_segments
+
+        X_aug_segments.append(X_aug)
+        Y_aug_segments.append(Y_seg)  # Adnotacje pozostają bez zmian!
+
+    return X_segments, Y_segments, X_aug_segments, Y_aug_segments
+
 
 from tensorflow.keras.layers import ZeroPadding1D, Conv1DTranspose, BatchNormalization
 
@@ -316,44 +362,46 @@ def main():
 
     X_fragments = []
     Y_fragments = []
+    X_aug_fragments = []
+    Y_aug_fragments = []
+
     for idx, (signal_ecg, ann) in enumerate(all_data):
         print(f"[DEBUG] Procesuję pacjenta idx={idx}, sygnał shape={signal_ecg.shape}")
         labels_full = create_label_array(signal_ecg, ann)
-        X_segs, Y_segs = generate_training_fragments(signal_ecg, labels_full, num_fragments=10)
-        print(f"[DEBUG] Pacjent idx={idx}: wygenerowano {len(X_segs)} fragmentów")
+
+        X_segs, Y_segs, X_aug_segs, Y_aug_segs = generate_training_fragments(signal_ecg, labels_full, num_fragments=10)
+
+        print(f"[DEBUG] Pacjent idx={idx}: wygenerowano {len(X_segs)} fragmentów + {len(X_aug_segs)} augmentowanych")
+
         X_fragments.extend(X_segs)
         Y_fragments.extend(Y_segs)
+        X_aug_fragments.extend(X_aug_segs)
+        Y_aug_fragments.extend(Y_aug_segs)
 
-    print(f"[DEBUG] Łącznie fragmentów: {len(X_fragments)}")
-    all_labels = np.concatenate(Y_fragments)
-    binc = np.bincount(all_labels, minlength=4)
-    print(f"[DEBUG] Globalny rozkład etykiet: none={binc[0]}, P={binc[1]}, QRS={binc[2]}, T={binc[3]}")
+    # Łączymy oba zbiory
+    X_total = np.array(X_fragments + X_aug_fragments, dtype=np.float32).reshape(-1, WINDOW_SIZE, 1)
+    Y_total = np.array(Y_fragments + Y_aug_fragments, dtype=np.int32)
 
-    X_fragments = np.array(X_fragments, dtype=np.float32).reshape(-1, WINDOW_SIZE, 1)
-    Y_fragments = np.array(Y_fragments, dtype=np.int32)
+    print(f"[DEBUG] Łącznie fragmentów: {len(X_total)} (oryginalne + augmentowane)")
 
-    Y_onehot = np.zeros((len(Y_fragments), WINDOW_SIZE, 4), dtype=np.float32)
-    for i in range(len(Y_fragments)):
-        Y_onehot[i, np.arange(WINDOW_SIZE), Y_fragments[i]] = 1.0
+    # Konwersja do one-hot encoding
+    Y_onehot = np.zeros((len(Y_total), WINDOW_SIZE, 4), dtype=np.float32)
+    for i in range(len(Y_total)):
+        Y_onehot[i, np.arange(WINDOW_SIZE), Y_total[i]] = 1.0
 
-    print("[DEBUG] X_fragments shape:", X_fragments.shape)
-    print("[DEBUG] Y_onehot shape:", Y_onehot.shape)
+    # Podział na zbiór treningowy i walidacyjny
+    X_train, X_val, y_train, y_val = train_test_split(X_total, Y_onehot, test_size=0.2, random_state=42)
 
-    X_train, X_val, y_train, y_val = train_test_split(X_fragments, Y_onehot, test_size=0.2, random_state=42)
     print(f"[DEBUG] Train size: {X_train.shape[0]}, Val size: {X_val.shape[0]}")
 
-    train_labels = np.argmax(y_train, axis=-1).ravel()
-    val_labels = np.argmax(y_val, axis=-1).ravel()
-    print(f"[DEBUG] Rozkład klas w TRAIN: {np.bincount(train_labels, minlength=4)}")
-    print(f"[DEBUG] Rozkład klas w VAL:   {np.bincount(val_labels, minlength=4)}")
-
+    # Trenowanie modelu
     print("[DEBUG] Buduję model UNet...")
     model = build_unet(WINDOW_SIZE)
     model.summary()
 
     callbacks = [
         EarlyStopping(monitor='val_loss', patience=10, verbose=1, restore_best_weights=True),
-        ModelCheckpoint("unet_ecg.h5", monitor='val_loss', save_best_only=True, verbose=1),
+        ModelCheckpoint("models/v2_data_augmentation/unet_ecg.h5", monitor='val_loss', save_best_only=True, verbose=1),
         ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=2, verbose=1)
     ]
 
@@ -361,7 +409,7 @@ def main():
     history = model.fit(
         X_train, y_train,
         validation_data=(X_val, y_val),
-        epochs=20,
+        epochs=50,
         batch_size=64,
         callbacks=callbacks,
         verbose=1
@@ -384,8 +432,9 @@ def main():
     print("\n[DEBUG] Ewaluacja onset/offset z tolerancją 150 ms (val set):")
     total_TP, total_FP, total_FN = evaluate_onset_offset_for_dataset(model, X_val, y_val, tolerance=150)
     precision = total_TP / (total_TP + total_FP + 1e-9)
-    recall    = total_TP / (total_TP + total_FN + 1e-9)
-    f1        = 2 * precision * recall / (precision + recall + 1e-9)
+    recall = total_TP / (total_TP + total_FN + 1e-9)
+    f1 = 2 * precision * recall / (precision + recall + 1e-9)
+
     print(f"Onset/Offset (val) => TP={total_TP}, FP={total_FP}, FN={total_FN}")
     print(f"Precision={precision:.4f}, Recall={recall:.4f}, F1={f1:.4f}")
 
