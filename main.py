@@ -136,36 +136,95 @@ def generate_training_fragments(signal, labels, num_fragments=5):
         Y_segments.append(Y_seg)
     return X_segments, Y_segments
 
+from tensorflow.keras.layers import ZeroPadding1D, Conv1DTranspose, BatchNormalization
+
 def build_unet(input_length):
-    inputs = Input(shape=(input_length,1))
-    conv1 = Conv1D(32, 9, activation='relu', padding='same')(inputs)
-    pool1 = MaxPooling1D(pool_size=2)(conv1)
+    inputs = Input(shape=(input_length, 1))
 
-    conv2 = Conv1D(64, 9, activation='relu', padding='same')(pool1)
-    pool2 = MaxPooling1D(pool_size=2)(conv2)
+    # =================== Encoder ===================
+    c1 = Conv1D(4, 9, padding="same", activation="relu")(inputs)
+    c1 = BatchNormalization()(c1)
+    c1 = Conv1D(4, 9, padding="same", activation="relu")(c1)
+    c1 = BatchNormalization()(c1)
+    p1 = MaxPooling1D(pool_size=2, padding="same")(c1)  # 1/2
 
-    conv3 = Conv1D(128, 9, activation='relu', padding='same')(pool2)
+    c2 = Conv1D(8, 9, padding="same", activation="relu")(p1)
+    c2 = BatchNormalization()(c2)
+    c2 = Conv1D(8, 9, padding="same", activation="relu")(c2)
+    c2 = BatchNormalization()(c2)
+    p2 = MaxPooling1D(pool_size=2, padding="same")(c2)  # 1/4
 
-    up1 = UpSampling1D(size=2)(conv3)
-    merge1 = concatenate([up1, conv2], axis=-1)
-    conv4 = Conv1D(64, 9, activation='relu', padding='same')(merge1)
+    c3 = Conv1D(16, 9, padding="same", activation="relu")(p2)
+    c3 = BatchNormalization()(c3)
+    c3 = Conv1D(16, 9, padding="same", activation="relu")(c3)
+    c3 = BatchNormalization()(c3)
+    p3 = MaxPooling1D(pool_size=2, padding="same")(c3)  # 1/8
 
-    up2 = UpSampling1D(size=2)(conv4)
-    merge2 = concatenate([up2, conv1], axis=-1)
-    conv5 = Conv1D(32, 9, activation='relu', padding='same')(merge2)
+    c4 = Conv1D(32, 9, padding="same", activation="relu")(p3)
+    c4 = BatchNormalization()(c4)
+    c4 = Conv1D(32, 9, padding="same", activation="relu")(c4)
+    c4 = BatchNormalization()(c4)
+    p4 = MaxPooling1D(pool_size=2, padding="same")(c4)  # 1/16
 
-    outputs = Conv1D(4, 1, activation='softmax')(conv5)
+    c5 = Conv1D(64, 9, padding="same", activation="relu")(p4)
+    c5 = BatchNormalization()(c5)
+    c5 = Conv1D(64, 9, padding="same", activation="relu")(c5)
+    c5 = BatchNormalization()(c5)
+
+    # =================== Decoder ===================
+    u4 = Conv1DTranspose(32, 8, strides=2, padding="same")(c5)
+    if u4.shape[1] != c4.shape[1]:
+        u4 = ZeroPadding1D((0, 1))(u4)  # Dopasowanie wymiarów
+    u4 = concatenate([u4, c4])
+
+    c6 = Conv1D(32, 9, padding="same", activation="relu")(u4)
+    c6 = BatchNormalization()(c6)
+    c6 = Conv1D(32, 9, padding="same", activation="relu")(c6)
+    c6 = BatchNormalization()(c6)
+
+    u3 = Conv1DTranspose(16, 8, strides=2, padding="same")(c6)
+    if u3.shape[1] != c3.shape[1]:
+        u3 = ZeroPadding1D((0, 1))(u3)
+    u3 = concatenate([u3, c3])
+
+    c7 = Conv1D(16, 9, padding="same", activation="relu")(u3)
+    c7 = BatchNormalization()(c7)
+    c7 = Conv1D(16, 9, padding="same", activation="relu")(c7)
+    c7 = BatchNormalization()(c7)
+
+    u2 = Conv1DTranspose(8, 8, strides=2, padding="same")(c7)
+    if u2.shape[1] != c2.shape[1]:
+        u2 = ZeroPadding1D((0, 1))(u2)
+    u2 = concatenate([u2, c2])
+
+    c8 = Conv1D(8, 9, padding="same", activation="relu")(u2)
+    c8 = BatchNormalization()(c8)
+    c8 = Conv1D(8, 9, padding="same", activation="relu")(c8)
+    c8 = BatchNormalization()(c8)
+
+    u1 = Conv1DTranspose(4, 8, strides=2, padding="same")(c8)
+    if u1.shape[1] != c1.shape[1]:
+        u1 = ZeroPadding1D((0, 1))(u1)
+    u1 = concatenate([u1, c1])
+
+    c9 = Conv1D(4, 9, padding="same", activation="relu")(u1)
+    c9 = BatchNormalization()(c9)
+    c9 = Conv1D(4, 9, padding="same", activation="relu")(c9)
+    c9 = BatchNormalization()(c9)
+
+    # =================== Output ===================
+    outputs = Conv1D(4, 1, activation="softmax")(c9)
 
     model = Model(inputs, outputs)
-    model.compile(optimizer='adam',
-                  loss='categorical_crossentropy',
-                  metrics=[
-                      'accuracy',
-                      tf.keras.metrics.Precision(name='precision'),
-                      tf.keras.metrics.Recall(name='recall')
-                  ])
-    print("[DEBUG] UNet zbudowany i skompilowany")
+    model.compile(
+        optimizer="adam",
+        loss="categorical_crossentropy",
+        metrics=["accuracy", tf.keras.metrics.Precision(), tf.keras.metrics.Recall()]
+    )
+
+    print("[DEBUG] Model UNet zbudowany")
     return model
+
 
 def plot_confusion_matrix_samples(model, X, Y_onehot):
     preds = model.predict(X)
