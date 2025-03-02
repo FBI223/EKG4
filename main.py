@@ -31,7 +31,36 @@ BAD_PATIENTS = [7, 34, 95, 104, 111]
 WAVE_MAP = {'p': 1, 'N': 2, 't': 3}  # 0 = none
 
 
+
 def augment_signal(signal):
+    """Dodaje realistyczne zakłócenia do sygnału EKG."""
+    L = len(signal)
+
+    # 1. Szum Gaussowski (małe zakłócenia elektryczne)
+    noise = np.random.normal(0, 0.01, L)
+
+    # 2. Dryft bazowy (symulacja oddychania, niskoczęstotliwościowy trend)
+    drift = 0.05 * np.sin(np.linspace(0, 2 * np.pi, L))
+
+    # 3. Zakłócenia od mikro skurczów mięśni (szybkie, losowe zmiany)
+    muscle_noise = 0.02 * np.random.randn(L) * np.sin(np.linspace(0, 50 * np.pi, L))
+
+    # 4. Zakłócenia elektryczne 50Hz (lekkie zakłócenia sieci elektrycznej)
+    electric_noise = 0.01 * np.sin(2 * np.pi * 50 * np.linspace(0, 1, L))
+
+    # Skalujemy każdą perturbację losowym współczynnikiem w zakresie 0.5x - 1.5x
+    noise *= np.random.uniform(0.5, 1.5)
+    drift *= np.random.uniform(0.5, 1.5)
+    muscle_noise *= np.random.uniform(0.5, 1.5)
+    electric_noise *= np.random.uniform(0.5, 1.5)
+
+    # Sumujemy wszystkie zakłócenia razem
+    augmented_signal = signal + noise + drift + muscle_noise + electric_noise
+
+    return augmented_signal
+
+
+def augment_signalv1(signal):
     """Dodaje różne realistyczne zakłócenia do sygnału EKG."""
     L = len(signal)
 
@@ -401,7 +430,7 @@ def main():
 
     callbacks = [
         EarlyStopping(monitor='val_loss', patience=10, verbose=1, restore_best_weights=True),
-        ModelCheckpoint("models/v2_data_augmentation/unet_ecg.h5", monitor='val_loss', save_best_only=True, verbose=1),
+        ModelCheckpoint("unet_ecg.h5", monitor='val_loss', save_best_only=True, verbose=1),
         ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=2, verbose=1)
     ]
 
