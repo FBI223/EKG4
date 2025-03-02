@@ -20,7 +20,7 @@ from tensorflow.keras.layers import Input, Conv1D, MaxPooling1D, UpSampling1D, c
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 
 # Preferowane odprowadzenia
-PREFERRED_LEADS = ["ii", "MLII", "II", "ECG1"]
+PREFERRED_LEADS = ["ii", "MLII", "II"]
 LUDB_PATH = "ludb/data/"
 TARGET_FS = 500
 WINDOW_SIZE = 2000
