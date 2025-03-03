@@ -20,8 +20,12 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLRO
 from scipy.interpolate import CubicSpline
 
 
+
 # Preferowane odprowadzenia
-PREFERRED_LEADS = ["ii", "MLII", "II", "ECG1"]
+# Preferowane leady
+PREFERRED_LEADS = ["MLII", "II", "ECG1" ,"mlii","ii" , "ecg1" ]
+# Ścieżki do baz danych
+QTDB_PATH = "C:/Users/msztu/Documents/EKG4/qtdb/"
 LUDB_PATH = "ludb/data/"
 MODEL_PATH = "unet_ecg.h5"  # Model UNet
 TARGET_FS = 500
@@ -35,9 +39,133 @@ WAVE_MAP = {'p': 1, 'N': 2, 't': 3}  # 0 = none
 # Wczytanie modelu
 if not os.path.exists(MODEL_PATH):
     raise FileNotFoundError(f"❌ Brak pliku modelu {MODEL_PATH}")
-
 print("[INFO] Załadowano model UNet")
 model = tf.keras.models.load_model(MODEL_PATH)
+
+
+
+
+
+
+
+
+
+def list_available_leads():
+    """Znajduje dostępne leady w plikach .hea i wypisuje debugowanie."""
+    records = glob.glob(os.path.join(QTDB_PATH, "*.hea"))
+    lead_info = {}
+
+    print("[DEBUG] Sprawdzanie dostępnych leadów w bazie QTDB...")
+
+    for record in records:
+        record_name = os.path.splitext(os.path.basename(record))[0]
+        try:
+            record_info = wfdb.rdrecord(os.path.join(QTDB_PATH, record_name))
+            lead_info[record_name] = record_info.sig_name
+            print(f"[INFO] Rekord: {record_name}, Lead-y: {record_info.sig_name}")
+        except Exception as e:
+            print(f"[ERROR] Nie udało się wczytać {record_name}: {e}")
+
+    return lead_info
+
+
+def find_annotation_file(record_name):
+    """Znajduje odpowiedni plik adnotacji dla danego rekordu."""
+    possible_files = glob.glob(os.path.join(QTDB_PATH, record_name + ".*"))
+
+    # Sprawdzamy dostępne rozszerzenia
+    for file in possible_files:
+        ext = file.split(".")[-1]
+        if ext in ["pu", "pu1", "q1c", "qt1"]:
+            print(f"[DEBUG] Znaleziono plik adnotacji: {file}")
+            return file, ext
+
+    print(f"[WARNING] Brak pliku adnotacji dla rekordu {record_name}")
+    return None, None
+
+
+def select_best_lead(record):
+    """Wybiera najlepszy lead z listy preferowanych."""
+    if record.p_signal is None or not hasattr(record, "sig_name"):
+        return None
+
+    for lead in PREFERRED_LEADS:
+        if lead in record.sig_name:
+            idx = record.sig_name.index(lead)
+            print(f"[INFO] Wybrano lead: {lead} (indeks {idx})")
+            return record.p_signal[:, idx]
+
+    print("[WARNING] Żaden preferowany lead nie został znaleziony.")
+    return None
+
+
+def load_ecg(record_name):
+    """Wczytuje sygnał EKG i adnotacje dla danego rekordu."""
+    annotation_file, ext = find_annotation_file(record_name)
+    if annotation_file is None:
+        return None, None
+
+    record_path = os.path.join(QTDB_PATH, record_name)
+
+    try:
+        record = wfdb.rdrecord(record_path)
+        annotation = wfdb.rdann(record_path, extension=ext)
+
+        best_lead = select_best_lead(record)
+        if best_lead is None:
+            return None, None
+
+        return best_lead, annotation
+    except Exception as e:
+        print(f"[ERROR] Nie udało się wczytać {record_name}: {e}")
+        return None, None
+
+
+def load_all_records():
+    """Wczytuje wszystkie rekordy i zwraca poprawne dane."""
+    data_list = []
+    lead_info = list_available_leads()  # Pobierz dostępne leady
+
+    print("\n[DEBUG] Rozpoczynam wczytywanie danych...")
+
+    for record_name in lead_info.keys():
+        if record_name in map(str, BAD_PATIENTS_II):  # Sprawdzamy, czy nie pomijamy pacjenta
+            print(f"[WARNING] Pomijam pacjenta {record_name}")
+            continue
+
+        rec, ann = load_ecg(record_name)
+        if rec is not None and ann is not None:
+            data_list.append((rec, ann))
+
+    print(f"\n[INFO] Wczytano {len(data_list)} rekordów.")
+    return data_list
+
+
+# **Uruchomienie programu**
+if __name__ == "__main__":
+    qtdb_dataset = load_all_records()
+    print(f"\n[INFO] Ostatecznie wczytano {len(qtdb_dataset)} rekordów z QTDB.")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def augment_signal(signal):
@@ -159,17 +287,6 @@ def load_ecg(record_name):
     return best_lead, annotation  # Zwracamy rzeczywisty sygnał, a nie cały obiekt `Record`
 
 
-def load_ecgv1(record_name):
-    annotation_file = find_annotation_file(record_name)
-    if annotation_file is None:
-        print(f"❌ Brak pliku adnotacji dla {record_name}, pomijam...")
-        return None, None
-    record_path = os.path.join(LUDB_PATH, record_name)
-    record = wfdb.rdrecord(record_path)
-    ext = annotation_file.split('.')[-1]
-    annotation = wfdb.rdann(annotation_file[:-len(ext)-1], extension=ext)
-    print(f"[DEBUG] Wczytano ECG rekordu {record_name} z {len(record.p_signal)} próbkami")
-    return record, annotation
 
 def load_all_records():
     data_list = []
@@ -584,7 +701,6 @@ def run_model_inference():
 
     plot_predictions(X_test, Y_test, pred_labels, records)
 
-# Uruchomienie inferencji
-if __name__ == "__main__":
-    #main()
-    run_model_inference()
+
+
+
