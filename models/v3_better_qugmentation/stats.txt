@@ -1,0 +1,26 @@
+Epoch 50/50
+48/49 [============================>.] - ETA: 0s - loss: 0.0281 - accuracy: 0.9914 - precision: 0.9918 - recall: 0.9909
+Epoch 50: val_loss did not improve from 0.03753
+49/49 [==============================] - 3s 55ms/step - loss: 0.0281 - accuracy: 0.9914 - precision: 0.9918 - recall: 0.9909 - val_loss: 0.0378 - val_accuracy: 0.9884 - val_precision: 0.9889 - val_recall: 0.9880 - lr: 6.2500e-05
+[DEBUG] Obliczam macierz konfuzji (sample-level) i classification report...
+25/25 [==============================] - 1s 8ms/step
+
+[DEBUG] Classification Report (sample-level):
+              precision    recall  f1-score   support
+
+        none       0.99      0.99      0.99    899742
+           P       0.98      0.99      0.98    169635
+         QRS       0.99      0.99      0.99    173049
+           T       0.99      0.99      0.99    317574
+
+    accuracy                           0.99   1560000
+   macro avg       0.99      0.99      0.99   1560000
+weighted avg       0.99      0.99      0.99   1560000
+
+
+[DEBUG] Ewaluacja onset/offset z tolerancją 150 ms (val set):
+25/25 [==============================] - 0s 10ms/step
+Onset/Offset (val) => TP=10239, FP=153, FN=39
+Precision=0.9853, Recall=0.9962, F1=0.9907
+
+Process finished with exit code 0

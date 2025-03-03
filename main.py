@@ -23,6 +23,7 @@ from scipy.interpolate import CubicSpline
 # Preferowane odprowadzenia
 PREFERRED_LEADS = ["ii", "MLII", "II", "ECG1"]
 LUDB_PATH = "ludb/data/"
+MODEL_PATH = "unet_ecg.h5"  # Model UNet
 TARGET_FS = 500
 WINDOW_SIZE = 2000
 BAD_PATIENTS = [7, 34, 95, 104, 111]
@@ -30,6 +31,12 @@ BAD_PATIENTS = [7, 34, 95, 104, 111]
 # Mapowanie symboli na klasy (0=none, 1=P, 2=QRS, 3=T)
 WAVE_MAP = {'p': 1, 'N': 2, 't': 3}  # 0 = none
 
+# Wczytanie modelu
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(f"❌ Brak pliku modelu {MODEL_PATH}")
+
+print("[INFO] Załadowano model UNet")
+model = tf.keras.models.load_model(MODEL_PATH)
 
 
 def augment_signal(signal):
@@ -127,7 +134,31 @@ def find_annotation_file(record_name):
     print(f"[DEBUG] Brak pliku adnotacji dla rekordu {record_name}")
     return None
 
+
 def load_ecg(record_name):
+    """Wczytuje sygnał EKG i adnotacje dla danego rekordu."""
+    annotation_file = find_annotation_file(record_name)
+    if annotation_file is None:
+        return None, None
+
+    record_path = os.path.join(LUDB_PATH, record_name)
+    record = wfdb.rdrecord(record_path)
+    ext = annotation_file.split('.')[-1]
+    annotation = wfdb.rdann(annotation_file[:-len(ext)-1], extension=ext)
+
+    best_lead = None
+    for lead in PREFERRED_LEADS:
+        if lead in record.sig_name:
+            best_lead = record.p_signal[:, record.sig_name.index(lead)]
+            break
+
+    if best_lead is None:
+        return None, None
+
+    return best_lead, annotation  # Zwracamy rzeczywisty sygnał, a nie cały obiekt `Record`
+
+
+def load_ecgv1(record_name):
     annotation_file = find_annotation_file(record_name)
     if annotation_file is None:
         print(f"❌ Brak pliku adnotacji dla {record_name}, pomijam...")
@@ -148,7 +179,7 @@ def load_all_records():
         record_name = str(record_id)
         rec, ann = load_ecg(record_name)
         if rec is not None and ann is not None:
-            best_lead = select_best_lead(rec)
+            best_lead = rec  # Już jest numpy.ndarray
             if best_lead is not None:
                 data_list.append((best_lead, ann))
     print(f"[DEBUG] Łącznie wczytano {len(data_list)} rekordów")
@@ -468,5 +499,91 @@ def main():
     print(f"Precision={precision:.4f}, Recall={recall:.4f}, F1={f1:.4f}")
 
 
+
+def load_test_data(num_samples=5):
+    """Losuje `num_samples` pacjentów i zwraca sygnał EKG + adnotacje."""
+    available_patients = [str(i) for i in range(1, 201) if i not in BAD_PATIENTS]
+    selected_patients = np.random.choice(available_patients, num_samples, replace=False)
+
+    X_test, Y_test, records = [], [], []
+    for record_name in selected_patients:
+        signal, annotation = load_ecg(record_name)
+        if signal is None or annotation is None:
+            continue
+
+        labels = create_label_array(signal, annotation)
+
+        # Pobranie fragmentu o długości WINDOW_SIZE
+        if len(signal) > WINDOW_SIZE:
+            start_idx = np.random.randint(0, len(signal) - WINDOW_SIZE)
+            X_segment = signal[start_idx:start_idx + WINDOW_SIZE].copy()
+            Y_segment = labels[start_idx:start_idx + WINDOW_SIZE].copy()
+
+            # Normalizacja
+            X_segment = (X_segment - np.mean(X_segment)) / (np.std(X_segment) + 1e-8)
+
+            X_test.append(X_segment)
+            Y_test.append(Y_segment)
+            records.append(record_name)
+
+    X_test = np.array(X_test, dtype=np.float32).reshape(-1, WINDOW_SIZE, 1)
+    Y_test = np.array(Y_test, dtype=np.int32)
+
+    return X_test, Y_test, records
+
+def plot_predictions(X_test, Y_test, pred_labels, records):
+    """Tworzy dwa wykresy: jeden dla rzeczywistych adnotacji, drugi dla predykcji."""
+    os.makedirs("models/v4_sota/predictions", exist_ok=True)
+
+    for i in range(len(X_test)):
+        fig, axs = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+
+        # Górny wykres - rzeczywiste adnotacje
+        axs[0].plot(X_test[i], label="Sygnał EKG", color="black", linewidth=1)
+        axs[0].set_title(f"Pacjent {records[i]} - Oryginalne adnotacje (GT)")
+        axs[0].set_ylabel("Amplituda")
+
+        true_p = np.where(Y_test[i] == 1)[0]
+        true_qrs = np.where(Y_test[i] == 2)[0]
+        true_t = np.where(Y_test[i] == 3)[0]
+
+        axs[0].scatter(true_p, X_test[i][true_p], color="blue", label="GT: P", marker="o", s=40)
+        axs[0].scatter(true_qrs, X_test[i][true_qrs], color="red", label="GT: QRS", marker="o", s=40)
+        axs[0].scatter(true_t, X_test[i][true_t], color="green", label="GT: T", marker="o", s=40)
+        axs[0].legend()
+        axs[0].grid()
+
+        # Dolny wykres - predykcja modelu
+        axs[1].plot(X_test[i], label="Sygnał EKG", color="black", linewidth=1)
+        axs[1].set_title(f"Pacjent {records[i]} - Predykcja modelu")
+        axs[1].set_xlabel("Próbki")
+        axs[1].set_ylabel("Amplituda")
+
+        pred_p = np.where(pred_labels[i] == 1)[0]
+        pred_qrs = np.where(pred_labels[i] == 2)[0]
+        pred_t = np.where(pred_labels[i] == 3)[0]
+
+        axs[1].scatter(pred_p, X_test[i][pred_p], color="blue", label="Pred: P", marker="x", s=30)
+        axs[1].scatter(pred_qrs, X_test[i][pred_qrs], color="red", label="Pred: QRS", marker="x", s=30)
+        axs[1].scatter(pred_t, X_test[i][pred_t], color="green", label="Pred: T", marker="x", s=30)
+        axs[1].legend()
+        axs[1].grid()
+
+        save_path = f"models/v4_sota/predictions/ecg_prediction_{records[i]}.png"
+        plt.savefig(save_path)
+        plt.close()
+
+    print(f"[INFO] Zapisano wykresy do folderu 'predictions/'")
+
+def run_model_inference():
+    """Wykonuje predykcję i rysuje wykresy."""
+    X_test, Y_test, records = load_test_data(num_samples=5)
+    preds = model.predict(X_test)
+    pred_labels = np.argmax(preds, axis=-1)
+
+    plot_predictions(X_test, Y_test, pred_labels, records)
+
+# Uruchomienie inferencji
 if __name__ == "__main__":
     main()
+    run_model_inference()

@@ -1,0 +1,24 @@
+Epoch 50/50
+48/49 [============================>.] - ETA: 0s - loss: 0.0264 - accuracy: 0.9924 - precision: 0.9929 - recall: 0.9920
+Epoch 50: val_loss improved from 0.03644 to 0.03635, saving model to unet_ecg.h5
+49/49 [==============================] - 3s 58ms/step - loss: 0.0264 - accuracy: 0.9924 - precision: 0.9929 - recall: 0.9920 - val_loss: 0.0363 - val_accuracy: 0.9894 - val_precision: 0.9899 - val_recall: 0.9890 - lr: 3.1250e-05
+[DEBUG] Obliczam macierz konfuzji (sample-level) i classification report...
+25/25 [==============================] - 1s 9ms/step
+
+[DEBUG] Classification Report (sample-level):
+              precision    recall  f1-score   support
+
+        none       0.99      0.99      0.99    899809
+           P       0.99      0.98      0.98    167812
+         QRS       0.99      0.98      0.99    172621
+           T       0.99      0.99      0.99    319758
+
+    accuracy                           0.99   1560000
+   macro avg       0.99      0.99      0.99   1560000
+weighted avg       0.99      0.99      0.99   1560000
+
+
+[DEBUG] Ewaluacja onset/offset z tolerancją 150 ms (val set):
+25/25 [==============================] - 0s 9ms/step
+Onset/Offset (val) => TP=10219, FP=176, FN=73
+Precision=0.9831, Recall=0.9929, F1=0.9880

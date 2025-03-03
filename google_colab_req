@@ -1,0 +1,36 @@
+
+
+
+1) WSL
+
+conda create --name ECG python=3.10 -y
+conda activate ECG
+conda install -c nvidia -c conda-forge -c defaults python=3.10 cudatoolkit=11.8 -y
+pip install seaborn imblearn
+pip install tensorflow "numpy<2" pandas==2.2.2 wfdb scikit-learn matplotlib scipy biosppy
+conda install -c conda-forge -c nvidia cuda-python=11.8  -y
+
+
+
+2) WINDOWS
+
+conda create --name ECG python=3.10 -y
+conda activate ECG
+conda install -c conda-forge cudatoolkit=11.2 cudnn=8.1.0 -y
+pip install "tensorflow<2.11"
+pip uninstall numpy -y
+pip install "numpy<2"
+pip install wfdb scikit-learn matplotlib scipy biosppy
+conda install -c conda-forge imbalanced-learn
+
+
+
+
+3) GOOGLE COLAB
+
+!pip install tensorflow "numpy<2" pandas==2.2.2 wfdb scikit-learn matplotlib scipy biosppy wfdb seaborn imbalanced-learn
+!git clone https://FBI223:TOKEN_KEY@github.com/FBI223/EKG2.git
+%cd /content/EKG2
+!git pull origin master
+!python /content/EKG2/main.py
+
