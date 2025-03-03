@@ -501,7 +501,7 @@ def main():
 
 
 
-def load_test_data(num_samples=5):
+def load_test_data(num_samples=100):
     """Losuje `num_samples` pacjentów i zwraca sygnał EKG + adnotacje."""
     available_patients = [str(i) for i in range(1, 201) if i not in BAD_PATIENTS_II]
     selected_patients = np.random.choice(available_patients, num_samples, replace=False)
@@ -570,7 +570,7 @@ def plot_predictions(X_test, Y_test, pred_labels, records):
         axs[1].legend()
         axs[1].grid()
 
-        save_path = f"models/v4_sota/predictions/ecg_prediction_{records[i]}.png"
+        save_path = f"predictions/ecg_prediction_{records[i]}.png"
         plt.savefig(save_path)
         plt.close()
 
@@ -578,7 +578,7 @@ def plot_predictions(X_test, Y_test, pred_labels, records):
 
 def run_model_inference():
     """Wykonuje predykcję i rysuje wykresy."""
-    X_test, Y_test, records = load_test_data(num_samples=10)
+    X_test, Y_test, records = load_test_data(num_samples=100)
     preds = model.predict(X_test)
     pred_labels = np.argmax(preds, axis=-1)
 
