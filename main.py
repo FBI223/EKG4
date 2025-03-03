@@ -69,7 +69,7 @@ def list_available_leads():
     return lead_info
 
 
-def find_annotation_file(record_name):
+def find_annotation_file_qtdb(record_name):
     """Znajduje odpowiedni plik adnotacji dla danego rekordu."""
     possible_files = glob.glob(os.path.join(QTDB_PATH, record_name + ".*"))
 
@@ -84,24 +84,11 @@ def find_annotation_file(record_name):
     return None, None
 
 
-def select_best_lead(record):
-    """Wybiera najlepszy lead z listy preferowanych."""
-    if record.p_signal is None or not hasattr(record, "sig_name"):
-        return None
-
-    for lead in PREFERRED_LEADS:
-        if lead in record.sig_name:
-            idx = record.sig_name.index(lead)
-            print(f"[INFO] Wybrano lead: {lead} (indeks {idx})")
-            return record.p_signal[:, idx]
-
-    print("[WARNING] Żaden preferowany lead nie został znaleziony.")
-    return None
 
 
-def load_ecg(record_name):
+def load_ecg_qtdb(record_name):
     """Wczytuje sygnał EKG i adnotacje dla danego rekordu."""
-    annotation_file, ext = find_annotation_file(record_name)
+    annotation_file, ext = find_annotation_file_qtdb(record_name)
     if annotation_file is None:
         return None, None
 
@@ -121,7 +108,7 @@ def load_ecg(record_name):
         return None, None
 
 
-def load_all_records():
+def load_all_records_qtdb():
     """Wczytuje wszystkie rekordy i zwraca poprawne dane."""
     data_list = []
     lead_info = list_available_leads()  # Pobierz dostępne leady
@@ -133,38 +120,12 @@ def load_all_records():
             print(f"[WARNING] Pomijam pacjenta {record_name}")
             continue
 
-        rec, ann = load_ecg(record_name)
+        rec, ann = load_ecg_qtdb(record_name)
         if rec is not None and ann is not None:
             data_list.append((rec, ann))
 
     print(f"\n[INFO] Wczytano {len(data_list)} rekordów.")
     return data_list
-
-
-# **Uruchomienie programu**
-if __name__ == "__main__":
-    qtdb_dataset = load_all_records()
-    print(f"\n[INFO] Ostatecznie wczytano {len(qtdb_dataset)} rekordów z QTDB.")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -288,7 +249,7 @@ def load_ecg(record_name):
 
 
 
-def load_all_records():
+def load_all_records_ludb():
     data_list = []
     for record_id in range(1, 201):
         if record_id in BAD_PATIENTS_II:
@@ -535,7 +496,7 @@ def main():
     signal.signal(signal.SIGINT, cleanup_resources)
 
     print("[DEBUG] Rozpoczynam wczytywanie rekordów...")
-    all_data = load_all_records()
+    all_data = load_all_records_ludb()
     print(f"[DEBUG] Załadowano {len(all_data)} rekordów.")
 
     X_fragments = []
@@ -700,6 +661,12 @@ def run_model_inference():
     pred_labels = np.argmax(preds, axis=-1)
 
     plot_predictions(X_test, Y_test, pred_labels, records)
+
+
+# **Uruchomienie programu**
+if __name__ == "__main__":
+    qtdb_dataset = load_all_records_qtdb()
+    print(f"\n[INFO] Ostatecznie wczytano {len(qtdb_dataset)} rekordów z QTDB.")
 
 
 
