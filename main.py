@@ -27,6 +27,7 @@ MODEL_PATH = "unet_ecg.h5"  # Model UNet
 TARGET_FS = 500
 WINDOW_SIZE = 2000
 BAD_PATIENTS = [7, 34, 95, 104, 111]
+BAD_PATIENTS_II = [ 95, 104]
 
 # Mapowanie symboli na klasy (0=none, 1=P, 2=QRS, 3=T)
 WAVE_MAP = {'p': 1, 'N': 2, 't': 3}  # 0 = none
@@ -173,7 +174,7 @@ def load_ecgv1(record_name):
 def load_all_records():
     data_list = []
     for record_id in range(1, 201):
-        if record_id in BAD_PATIENTS:
+        if record_id in BAD_PATIENTS_II:
             print(f"[DEBUG] Pomijam pacjenta {record_id}")
             continue
         record_name = str(record_id)
@@ -502,7 +503,7 @@ def main():
 
 def load_test_data(num_samples=5):
     """Losuje `num_samples` pacjentów i zwraca sygnał EKG + adnotacje."""
-    available_patients = [str(i) for i in range(1, 201) if i not in BAD_PATIENTS]
+    available_patients = [str(i) for i in range(1, 201) if i not in BAD_PATIENTS_II]
     selected_patients = np.random.choice(available_patients, num_samples, replace=False)
 
     X_test, Y_test, records = [], [], []
@@ -577,7 +578,7 @@ def plot_predictions(X_test, Y_test, pred_labels, records):
 
 def run_model_inference():
     """Wykonuje predykcję i rysuje wykresy."""
-    X_test, Y_test, records = load_test_data(num_samples=5)
+    X_test, Y_test, records = load_test_data(num_samples=10)
     preds = model.predict(X_test)
     pred_labels = np.argmax(preds, axis=-1)
 
