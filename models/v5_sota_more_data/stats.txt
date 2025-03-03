@@ -1,0 +1,18 @@
+Epoch 50/50
+49/50 [============================>.] - ETA: 0s - loss: 0.0218 - accuracy: 0.9931 - precision: 0.9933 - recall: 0.9929
+Epoch 50: val_loss improved from 0.03379 to 0.03349, saving model to unet_ecg.h5
+50/50 [==============================] - 3s 60ms/step - loss: 0.0218 - accuracy: 0.9931 - precision: 0.9933 - recall: 0.9929 - val_loss: 0.0335 - val_accuracy: 0.9894 - val_precision: 0.9897 - val_recall: 0.9892 - lr: 6.2500e-05
+[DEBUG] Obliczam macierz konfuzji (sample-level) i classification report...
+25/25 [==============================] - 1s 13ms/step
+
+[DEBUG] Classification Report (sample-level):
+              precision    recall  f1-score   support
+
+        none       0.99      0.99      0.99    906440
+           P       0.98      0.99      0.99    177731
+         QRS       0.99      0.98      0.99    174540
+           T       0.99      0.99      0.99    325289
+
+    accuracy                           0.99   1584000
+   macro avg       0.99      0.99      0.99   1584000
+weighted avg       0.99      0.99      0.99   1584000
