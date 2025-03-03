@@ -7,7 +7,7 @@ import numpy as np
 import wfdb
 import matplotlib.pyplot as plt
 
-from random import randint
+from random import randint, choice
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 
@@ -34,6 +34,13 @@ BAD_PATIENTS_II = [ 95, 104]
 
 # Mapowanie symboli na klasy (0=none, 1=P, 2=QRS, 3=T)
 WAVE_MAP = {'p': 1, 'N': 2, 't': 3}  # 0 = none
+
+
+OK_RECORDS_QTDB = {'sel103', 'sel116', 'sel117', 'sel123', 'sel16265', 'sel16272', 'sel16273',
+                   'sel16420', 'sel16483', 'sel16539', 'sel16773', 'sel16786', 'sel16795',
+                   'sel17152', 'sel17453', 'sel230', 'sel231', 'sel302', 'sel307', 'sel33',
+                   'sel34', 'sel40', 'sel47', 'sel51', 'sel811', 'sel840', 'sel873'}  # Używam `set` dla szybszego wyszukiwania
+
 
 # Wczytanie modelu
 if not os.path.exists(MODEL_PATH):
@@ -613,6 +620,8 @@ def load_test_data(num_samples=100):
 
     return X_test, Y_test, records
 
+
+
 def plot_predictions(X_test, Y_test, pred_labels, records):
     """Tworzy dwa wykresy: jeden dla rzeczywistych adnotacji, drugi dla predykcji."""
     os.makedirs("models/v4_sota/predictions", exist_ok=True)
@@ -657,7 +666,7 @@ def plot_predictions(X_test, Y_test, pred_labels, records):
 
     print(f"[INFO] Zapisano wykresy do folderu 'predictions/'")
 
-def run_model_inference():
+def run_model_inference_on_ludb():
     """Wykonuje predykcję i rysuje wykresy."""
     X_test, Y_test, records = load_test_data(num_samples=100)
     preds = model.predict(X_test)
@@ -666,10 +675,72 @@ def run_model_inference():
     plot_predictions(X_test, Y_test, pred_labels, records)
 
 
+# Podział sygnału na fragmenty
+def segment_signal(signal, window_size):
+    num_segments = len(signal) // window_size
+    segments = [signal[i * window_size:(i + 1) * window_size] for i in range(num_segments)]
+    return np.array(segments)
+
+
+
+# Wczytanie sygnału i predykcja
+def process_and_predict(record_name):
+    record_path = os.path.join(QTDB_PATH, record_name)
+    try:
+        record = wfdb.rdrecord(record_path)
+        best_lead = None
+        for lead in PREFERRED_LEADS:
+            if lead in record.sig_name:
+                best_lead = record.p_signal[:, record.sig_name.index(lead)]
+                break
+        if best_lead is None:
+            print(f"[WARNING] Brak odpowiedniego leadu w {record_name}")
+            return None, None
+
+        resampled_signal = resample_signal(best_lead, record.fs, TARGET_FS)
+        return resampled_signal, record_name
+    except Exception as e:
+        print(f"[ERROR] Nie udało się wczytać {record_name}: {e}")
+        return None, None
+
+# Wizualizacja wyników
+def plot_prediction(signal, pred_labels, record_name):
+    plt.figure(figsize=(12, 6))
+    plt.plot(signal, label="Sygnał EKG", color="black")
+    p_idx = np.where(pred_labels == 1)[0]
+    qrs_idx = np.where(pred_labels == 2)[0]
+    t_idx = np.where(pred_labels == 3)[0]
+    plt.scatter(p_idx, signal[p_idx], color="blue", label="P", marker="o")
+    plt.scatter(qrs_idx, signal[qrs_idx], color="red", label="QRS", marker="x")
+    plt.scatter(t_idx, signal[t_idx], color="green", label="T", marker="s")
+    plt.title(f"Predykcja dla {record_name}")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+# Pobranie jednego losowego rekordu i fragmentu 2000 próbek
+def run_single_prediction():
+    record_name = choice(list(OK_RECORDS_QTDB))
+    signal, record_name = process_and_predict(record_name)
+    if signal is None or len(signal) < WINDOW_SIZE:
+        print(f"[ERROR] Sygnał {record_name} jest zbyt krótki")
+        return
+
+    start_idx = np.random.randint(0, len(signal) - WINDOW_SIZE)
+    signal_fragment = signal[start_idx:start_idx + WINDOW_SIZE]
+    signal_fragment = (signal_fragment - np.mean(signal_fragment)) / (np.std(signal_fragment) + 1e-8)
+    signal_input = signal_fragment.reshape(1, WINDOW_SIZE, 1)
+
+    preds = model.predict(signal_input)
+    pred_labels = np.argmax(preds, axis=-1).flatten()
+
+    plot_prediction(signal_fragment, pred_labels, record_name)
+
+
 # **Uruchomienie programu**
 if __name__ == "__main__":
-    qtdb_dataset = load_all_records_qtdb()
-    print(f"\n[INFO] Ostatecznie wczytano {len(qtdb_dataset)} rekordów z QTDB.")
+    for i in range(100):
+        run_single_prediction()
 
 
 
