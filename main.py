@@ -586,5 +586,5 @@ def run_model_inference():
 
 # Uruchomienie inferencji
 if __name__ == "__main__":
-    main()
+    #main()
     run_model_inference()
