@@ -20,7 +20,6 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLRO
 from scipy.interpolate import CubicSpline
 
 
-
 # Preferowane odprowadzenia
 # Preferowane leady
 PREFERRED_LEADS = ["MLII", "II", "ECG1" ,"mlii","ii" , "ecg1" ]
@@ -107,24 +106,28 @@ def load_ecg_qtdb(record_name):
         print(f"[ERROR] Nie udało się wczytać {record_name}: {e}")
         return None, None
 
-
 def load_all_records_qtdb():
-    """Wczytuje wszystkie rekordy i zwraca poprawne dane."""
+    """Wczytuje tylko rekordy z OK_RECORDS_QTDB i zwraca poprawne dane."""
     data_list = []
     lead_info = list_available_leads()  # Pobierz dostępne leady
+
+    OK_RECORDS_QTDB = {'sel103', 'sel116', 'sel117', 'sel123', 'sel16265', 'sel16272', 'sel16273',
+                       'sel16420', 'sel16483', 'sel16539', 'sel16773', 'sel16786', 'sel16795',
+                       'sel17152', 'sel17453', 'sel230', 'sel231', 'sel302', 'sel307', 'sel33',
+                       'sel34', 'sel40', 'sel47', 'sel51', 'sel811', 'sel840', 'sel873'}  # Używam `set` dla szybszego wyszukiwania
 
     print("\n[DEBUG] Rozpoczynam wczytywanie danych...")
 
     for record_name in lead_info.keys():
-        if record_name in map(str, BAD_PATIENTS_II):  # Sprawdzamy, czy nie pomijamy pacjenta
-            print(f"[WARNING] Pomijam pacjenta {record_name}")
-            continue
+        if record_name not in OK_RECORDS_QTDB:  # Sprawdzenie, czy rekord jest na liście OK_RECORDS_QTDB
+            print(f"[DEBUG] Pomijam {record_name}, nie ma go w OK_RECORDS_QTDB.")
+            continue  # Pominięcie rekordu spoza listy
 
         rec, ann = load_ecg_qtdb(record_name)
         if rec is not None and ann is not None:
             data_list.append((rec, ann))
 
-    print(f"\n[INFO] Wczytano {len(data_list)} rekordów.")
+    print(f"\n[INFO] Wczytano {len(data_list)} rekordów z poprawnym fs=500Hz.")
     return data_list
 
 
