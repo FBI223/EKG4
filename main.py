@@ -18,7 +18,8 @@ from tensorflow.keras.layers import Input, Conv1D, MaxPooling1D, UpSampling1D, c
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 
 from scipy.interpolate import CubicSpline
-
+from PyQt6 import QtWidgets, QtGui
+from viewer import ECGEditor
 
 # Preferowane odprowadzenia
 # Preferowane leady
@@ -29,26 +30,19 @@ LUDB_PATH = "ludb/data/"
 MODEL_PATH = "unet_ecg.h5"  # Model UNet
 TARGET_FS = 500
 WINDOW_SIZE = 2000
-BAD_PATIENTS = [7, 34, 95, 104, 111]
-BAD_PATIENTS_II = [ 95, 104]
+BAD_PATIENTS = [7, 34, 90,  95, 104, 111]
+BAD_PATIENTS_II = []
 
 # Mapowanie symboli na klasy (0=none, 1=P, 2=QRS, 3=T)
 WAVE_MAP = {'p': 1, 'N': 2, 't': 3}  # 0 = none
 
 
-OK_RECORDS_QTDB = {'sel103', 'sel116', 'sel117', 'sel123', 'sel16265', 'sel16272', 'sel16273',
-                   'sel16420', 'sel16483', 'sel16539', 'sel16773', 'sel16786', 'sel16795',
-                   'sel17152', 'sel17453', 'sel230', 'sel231', 'sel302', 'sel307', 'sel33',
-                   'sel34', 'sel40', 'sel47', 'sel51', 'sel811', 'sel840', 'sel873'}  # Używam `set` dla szybszego wyszukiwania
-
 
 # Wczytanie modelu
-if not os.path.exists(MODEL_PATH):
-    raise FileNotFoundError(f"❌ Brak pliku modelu {MODEL_PATH}")
-print("[INFO] Załadowano model UNet")
-model = tf.keras.models.load_model(MODEL_PATH)
-
-
+#if not os.path.exists(MODEL_PATH):
+#    raise FileNotFoundError(f"❌ Brak pliku modelu {MODEL_PATH}")
+#print("[INFO] Załadowano model UNet")
+#model = tf.keras.models.load_model(MODEL_PATH)
 
 
 
@@ -558,7 +552,7 @@ def main():
     history = model.fit(
         X_train, y_train,
         validation_data=(X_val, y_val),
-        epochs=50,
+        epochs=20,
         batch_size=64,
         callbacks=callbacks,
         verbose=1
@@ -666,13 +660,15 @@ def plot_predictions(X_test, Y_test, pred_labels, records):
 
     print(f"[INFO] Zapisano wykresy do folderu 'predictions/'")
 
+"""
 def run_model_inference_on_ludb():
-    """Wykonuje predykcję i rysuje wykresy."""
     X_test, Y_test, records = load_test_data(num_samples=100)
     preds = model.predict(X_test)
     pred_labels = np.argmax(preds, axis=-1)
 
     plot_predictions(X_test, Y_test, pred_labels, records)
+
+"""
 
 
 # Podział sygnału na fragmenty
@@ -718,7 +714,8 @@ def plot_prediction(signal, pred_labels, record_name):
     plt.grid()
     plt.show()
 
-# Pobranie jednego losowego rekordu i fragmentu 2000 próbek
+
+"""
 def run_single_prediction():
     record_name = choice(list(OK_RECORDS_QTDB))
     signal, record_name = process_and_predict(record_name)
@@ -735,12 +732,20 @@ def run_single_prediction():
     pred_labels = np.argmax(preds, axis=-1).flatten()
 
     plot_prediction(signal_fragment, pred_labels, record_name)
+"""
 
 
-# **Uruchomienie programu**
+def run_ecg_viewer():
+    app = QtWidgets.QApplication(sys.argv)
+    app.setWindowIcon(QtGui.QIcon("heart.ico"))  # Ikona aplikacji na pasku zadań
+    editor = ECGEditor()
+    editor.show()
+    sys.exit(app.exec())
+
 if __name__ == "__main__":
-    for i in range(100):
-        run_single_prediction()
+    main()
+
+
 
 
 
