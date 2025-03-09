@@ -1,8 +1,4 @@
-import os
-import sys
-import gc
-import signal
-import glob
+import os, sys, gc, signal, glob
 import numpy as np
 import wfdb
 import matplotlib.pyplot as plt
@@ -14,22 +10,10 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classifica
 import tensorflow as tf
 import tensorflow.keras.backend as K
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Conv1D, MaxPooling1D, UpSampling1D, concatenate
-from tensorflow.keras.layers import ZeroPadding1D, Conv1DTranspose, BatchNormalization, Dropout
+from tensorflow.keras.layers import (Input, Conv1D, MaxPooling1D, UpSampling1D, concatenate,
+                                     ZeroPadding1D, Conv1DTranspose, BatchNormalization, Dropout)
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from tensorflow.keras.regularizers import l2
-
-
-
-
-"""
-Ulepszenie modelu:
-
-Dodaj regularizację (dropout, L2).
-Rozszerz augmentację danych.
-Dostosuj hiperparametry (np. learning rate, batch size, liczba filtrów).
-Użyj walidacji krzyżowej na poziomie pacjenta.
-"""
 
 # -------------------- Constants --------------------
 PREFERRED_LEADS = ["MLII", "II", "ECG1", "mlii", "ii", "ecg1"]
@@ -46,8 +30,12 @@ WAVE_MAP = {'p': 1, 'N': 2, 't': 3}
 LEARNING_RATE = 1e-3
 BATCH_SIZE = 32
 EPOCHS = 30
+DROPOUT_RATE = 0.2
+L2_REG = 1e-4
+BASE_FILTERS = 4
+LAMBDA_SMOOTH = 0.1  # Waga dla kary za zmienność czasową
 
-# -------------------- Missing Functions --------------------
+# -------------------- Utility & Data Loading Functions --------------------
 def cleanup_resources(signum, frame):
     print("Przerywanie... zwalniam pamięć!")
     K.clear_session()
@@ -69,21 +57,17 @@ def load_ecg(record_name):
     annotation_file = find_annotation_file(record_name)
     if annotation_file is None:
         return None, None
-
     record_path = os.path.join(LUDB_PATH, record_name)
     record = wfdb.rdrecord(record_path)
     ext = annotation_file.split('.')[-1]
     annotation = wfdb.rdann(annotation_file[:-len(ext)-1], extension=ext)
-
     best_lead = None
     for lead in PREFERRED_LEADS:
         if lead in record.sig_name:
             best_lead = record.p_signal[:, record.sig_name.index(lead)]
             break
-
     if best_lead is None:
         return None, None
-
     return best_lead, annotation
 
 def create_label_array(signal, annotation):
@@ -106,7 +90,7 @@ def create_label_array(signal, annotation):
             i += 1
     return labels
 
-# -------------------- Data Augmentation --------------------
+# -------------------- Data Augmentation Functions --------------------
 def augment_signal(signal):
     L = len(signal)
     noise = np.random.normal(0, 0.01, L) * np.random.uniform(0.5, 1.5)
@@ -148,10 +132,18 @@ def generate_fragments_for_cv(all_data, num_fragments=10):
     Y_total = np.array(Y_fragments, dtype=np.int32)
     return X_total, Y_total, groups
 
-# -------------------- Regularized UNet Model --------------------
-def build_unet(input_length, base_filters=4, dropout_rate=0.2, l2_reg=1e-4):
+# -------------------- Custom Loss with Temporal Smoothness Regularization --------------------
+def custom_loss(y_true, y_pred):
+    ce_loss = tf.keras.losses.categorical_crossentropy(y_true, y_pred)
+    # Karą za gwałtowne zmiany w czasie – wygładzanie wyjścia
+    diff = y_pred[:, 1:, :] - y_pred[:, :-1, :]
+    smooth_loss = tf.reduce_mean(tf.abs(diff))
+    return ce_loss + LAMBDA_SMOOTH * smooth_loss
+
+# -------------------- Improved UNet Model with Dilated Convolution --------------------
+def build_unet(input_length, base_filters=BASE_FILTERS, dropout_rate=DROPOUT_RATE, l2_reg=L2_REG):
     inputs = Input(shape=(input_length, 1))
-    # Encoder
+    # Encoder Block 1
     c1 = Conv1D(base_filters, 9, padding="same", activation="relu", kernel_regularizer=l2(l2_reg))(inputs)
     c1 = BatchNormalization()(c1)
     c1 = Dropout(dropout_rate)(c1)
@@ -160,6 +152,7 @@ def build_unet(input_length, base_filters=4, dropout_rate=0.2, l2_reg=1e-4):
     c1 = Dropout(dropout_rate)(c1)
     p1 = MaxPooling1D(pool_size=2, padding="same")(c1)
 
+    # Encoder Block 2
     c2 = Conv1D(base_filters*2, 9, padding="same", activation="relu", kernel_regularizer=l2(l2_reg))(p1)
     c2 = BatchNormalization()(c2)
     c2 = Dropout(dropout_rate)(c2)
@@ -168,6 +161,7 @@ def build_unet(input_length, base_filters=4, dropout_rate=0.2, l2_reg=1e-4):
     c2 = Dropout(dropout_rate)(c2)
     p2 = MaxPooling1D(pool_size=2, padding="same")(c2)
 
+    # Encoder Block 3
     c3 = Conv1D(base_filters*4, 9, padding="same", activation="relu", kernel_regularizer=l2(l2_reg))(p2)
     c3 = BatchNormalization()(c3)
     c3 = Dropout(dropout_rate)(c3)
@@ -176,6 +170,7 @@ def build_unet(input_length, base_filters=4, dropout_rate=0.2, l2_reg=1e-4):
     c3 = Dropout(dropout_rate)(c3)
     p3 = MaxPooling1D(pool_size=2, padding="same")(c3)
 
+    # Encoder Block 4
     c4 = Conv1D(base_filters*8, 9, padding="same", activation="relu", kernel_regularizer=l2(l2_reg))(p3)
     c4 = BatchNormalization()(c4)
     c4 = Dropout(dropout_rate)(c4)
@@ -184,14 +179,21 @@ def build_unet(input_length, base_filters=4, dropout_rate=0.2, l2_reg=1e-4):
     c4 = Dropout(dropout_rate)(c4)
     p4 = MaxPooling1D(pool_size=2, padding="same")(c4)
 
+    # Bottleneck Block with Dilated Convolution
     c5 = Conv1D(base_filters*16, 9, padding="same", activation="relu", kernel_regularizer=l2(l2_reg))(p4)
     c5 = BatchNormalization()(c5)
     c5 = Dropout(dropout_rate)(c5)
     c5 = Conv1D(base_filters*16, 9, padding="same", activation="relu", kernel_regularizer=l2(l2_reg))(c5)
     c5 = BatchNormalization()(c5)
     c5 = Dropout(dropout_rate)(c5)
+    # Gałąź dilatowana – uchwycenie szerszego kontekstu czasowego
+    c5_dilated = Conv1D(base_filters*16, 9, dilation_rate=2, padding="same", activation="relu",
+                        kernel_regularizer=l2(l2_reg))(c5)
+    c5_dilated = BatchNormalization()(c5_dilated)
+    c5_dilated = Dropout(dropout_rate)(c5_dilated)
+    c5 = concatenate([c5, c5_dilated])
 
-    # Decoder
+    # Decoder Block 1
     u4 = Conv1DTranspose(base_filters*8, 8, strides=2, padding="same")(c5)
     if u4.shape[1] != c4.shape[1]:
         u4 = ZeroPadding1D((0, 1))(u4)
@@ -203,6 +205,7 @@ def build_unet(input_length, base_filters=4, dropout_rate=0.2, l2_reg=1e-4):
     c6 = BatchNormalization()(c6)
     c6 = Dropout(dropout_rate)(c6)
 
+    # Decoder Block 2
     u3 = Conv1DTranspose(base_filters*4, 8, strides=2, padding="same")(c6)
     if u3.shape[1] != c3.shape[1]:
         u3 = ZeroPadding1D((0, 1))(u3)
@@ -214,6 +217,7 @@ def build_unet(input_length, base_filters=4, dropout_rate=0.2, l2_reg=1e-4):
     c7 = BatchNormalization()(c7)
     c7 = Dropout(dropout_rate)(c7)
 
+    # Decoder Block 3
     u2 = Conv1DTranspose(base_filters*2, 8, strides=2, padding="same")(c7)
     if u2.shape[1] != c2.shape[1]:
         u2 = ZeroPadding1D((0, 1))(u2)
@@ -225,6 +229,7 @@ def build_unet(input_length, base_filters=4, dropout_rate=0.2, l2_reg=1e-4):
     c8 = BatchNormalization()(c8)
     c8 = Dropout(dropout_rate)(c8)
 
+    # Decoder Block 4
     u1 = Conv1DTranspose(base_filters, 8, strides=2, padding="same")(c8)
     if u1.shape[1] != c1.shape[1]:
         u1 = ZeroPadding1D((0, 1))(u1)
@@ -239,7 +244,7 @@ def build_unet(input_length, base_filters=4, dropout_rate=0.2, l2_reg=1e-4):
     outputs = Conv1D(4, 1, activation="softmax")(c9)
     model = Model(inputs, outputs)
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE),
-                  loss="categorical_crossentropy",
+                  loss=custom_loss,
                   metrics=["accuracy", tf.keras.metrics.Precision(), tf.keras.metrics.Recall()])
     return model
 
@@ -247,6 +252,7 @@ def build_unet(input_length, base_filters=4, dropout_rate=0.2, l2_reg=1e-4):
 def main():
     signal.signal(signal.SIGINT, cleanup_resources)
     all_data = []
+    # Wczytanie rekordów z LUDB (od 1 do 200, pomijając BAD_PATIENTS_II)
     for record_id in range(1, 201):
         if record_id in BAD_PATIENTS_II:
             continue
@@ -254,12 +260,16 @@ def main():
         rec, ann = load_ecg(record_name)
         if rec is not None and ann is not None:
             all_data.append((rec, ann, record_name))
+    # Generacja fragmentów treningowych oraz grup pacjentów dla walidacji krzyżowej
     X_total, Y_total, groups = generate_fragments_for_cv(all_data, num_fragments=10)
+    # One-hot encoding etykiet
     Y_onehot = np.zeros((len(Y_total), WINDOW_SIZE, 4), dtype=np.float32)
     for i in range(len(Y_total)):
         Y_onehot[i, np.arange(WINDOW_SIZE), Y_total[i]] = 1.0
+    # Użycie walidacji krzyżowej z grupowaniem (wszystkie fragmenty jednego pacjenta razem)
     gkf = GroupKFold(n_splits=5)
-    for fold, (train_idx, val_idx) in enumerate(gkf.split(X_total, Y_onehot, groups)):
+    fold = 0
+    for train_idx, val_idx in gkf.split(X_total, Y_onehot, groups):
         X_train, X_val = X_total[train_idx], X_total[val_idx]
         y_train, y_val = Y_onehot[train_idx], Y_onehot[val_idx]
         model = build_unet(WINDOW_SIZE)
@@ -284,6 +294,7 @@ def main():
         plt.show()
         print(classification_report(true_labels, pred_labels, labels=[0, 1, 2, 3],
                                     target_names=["none", "P", "QRS", "T"]))
+        fold += 1
 
 if __name__ == "__main__":
     main()
