@@ -33,7 +33,7 @@ WINDOW_SIZE = 2000
 BAD_PATIENTS = [7, 34, 90,  95, 104, 111]
 BAD_PATIENTS_II = []
 
-# Mapowanie symboli na klasy (0=none, 1=P, 2=QRS, 3=T)
+# Mapowanie symboli na klasy (0=none, 1=P , 2=QRS, 3=T)
 WAVE_MAP = {'p': 1, 'N': 2, 't': 3}  # 0 = none
 
 
