@@ -45,7 +45,7 @@ def find_annotation_file(record_name):
             if file.endswith(f".{lead}"):
                 print(f"[DEBUG] Znaleziono plik adnotacji: {file}")
                 return file
-    print(f"[DEBUG] Brak pliku adnotacji dla rekordu {record_name}")
+    print(f"[DEBU] Brak pliku adnotacji dla rekordu {record_name}")
     return None
 
 def load_ecg(record_name):
